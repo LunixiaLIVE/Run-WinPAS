@@ -27,13 +27,14 @@
     [String]$LogFileName      = "$LoggingDirectory\SpeedTestLog_$($LogStartDateTime).csv";
 
 ### Speedtest.exe default argument. Arguments get prepended based on SpecifyServer boolean value.
-    [String]$ExeArgs          = "--format=json";
+    [String]$ExeArgs          = "--accept-license --format=json";
 
 ### PlaceHolder
     [datetime]$NextRunTime = Get-Date;
     [bool]$exeMissing = $false;
     [bool]$VersionFileExists = $false;
     [String]$CurrentVersion = [String]::Empty;
+    $NL = [Environment]::NewLine;
 
 ### Prompt-Set Variables
     [Int]$IntervalInMinutes   = 5;
@@ -42,16 +43,42 @@
     
 ### CODE START
 
-    ### Prerequisites Check
+    ### EULA & Terms
     Clear-Host;
+    if(-not (Test-Path -Path "$env:APPDATA\Ookla\Speedtest CLI\speedtest-cli.ini")){
+        Write-Host "Before we begin"
+        Write-Host "--------------------------------"; 
+        Write-Host "You may only use this Speedtest software and information generated$NL"`
+                   "from it for personal, non-commercial use, through a command line$NL"`
+                   "interface on a personal computer. Your use of this software is subject$NL"`
+                   "to the End User License Agreement, Terms of Use and Privacy Policy and$NL"`
+                   "General Data Protection Regulation (Europe)$NL"`
+                   "these URLs:$NL"`
+	               "https://www.speedtest.net/about/eula$NL"`
+	               "https://www.speedtest.net/about/terms$NL"`
+	               "https://www.speedtest.net/about/privacy";
+        [String]$result = Read-Host -Prompt "Do you wish to continue in accordnace with the$($NL)End User License Agreement and the Terms of Use and Privacy? y/n";
+        switch($result.ToUpper()){
+            "N" { 
+                return;
+            }
+            default { 
+                #Continue 
+            }
+        };
+    };
+    ### Prerequisites Check
+
     Write-Host "--------------------------------"; 
     Write-Host "Speed test will be conducted once all prompts are answered.";
     
     ### Setting up Directories
+    Write-Warning "Verifying Directories...";
     if (!(Test-Path -Path $WorkingDirectory)) { New-Item -Path $WorkingDirectory -ItemType Directory | Out-Null; };
     if (!(Test-Path -Path $LoggingDirectory)) { New-Item -Path $LoggingDirectory -ItemType Directory | Out-Null; };
     
     ### Verifying Files
+    Write-Warning "Verifying Files...";
     if (!(Test-Path -Path $SpeedTestExe)) { $exeMissing = $true; } else { $exeMissing = $false; }
     if (!(Test-Path -Path $VersionFile)) { $VersionFileExists = $false; } else { $VersionFileExists = $true; }
     if ((Test-Path -Path $SpeedTestExe) -and $VersionFileExists) {
@@ -61,6 +88,7 @@
     };
 
     ### Checking Version
+    Write-Warning "Verifying Version...";
     $HTML = Invoke-WebRequest -Uri "https://www.speedtest.net/apps/cli";
     $LatestVersion = [String]::Empty;
     foreach($Line in $HTML.Links) {
@@ -80,8 +108,8 @@
             "Y"{
                 foreach($Line in $HTML.Links){
                     if($Line.href.ToString().Contains("win64")){
-                        Remove-Item -Path $WorkingDirectory -Recurse -Force;
-                        New-Item -Path $WorkingDirectory -ItemType Directory;
+                        try{ Remove-Item -Path $WorkingDirectory -Recurse -Force | Out-Null; } catch { return; }
+                        try{ New-Item -Path $WorkingDirectory -ItemType Directory | Out-Null; } catch { return; }
                         Invoke-WebRequest -Uri $Line.href -Method Get -OutFile $WorkingDirectory\temp.zip;
                         Expand-Archive -Path $WorkingDirectory\temp.zip -DestinationPath $WorkingDirectory -Force;
                         Remove-Item -Path $WorkingDirectory\temp.zip;
@@ -140,8 +168,8 @@
             Invoke-Expression -Command "$SpeedTestExe --servers";
             Write-Host "--------------------------------";
             $ServerID = Read-Host -Prompt "Please specify the ID of the server you would like to use (0 to use random)";
-            if($ServerID -ne 0){
-                $ExeArgs = "--server-id=$ServerID $ExeArgs";
+            if($ServerID -ne "" -and $ServerID -and $null -and $ServerID -ne 0){
+                $ExeArgs += " --server-id=$ServerID";
                 Write-Host "ServerID has been set to: $ServerID";
             };
         }
@@ -160,7 +188,7 @@
     while($true){
         Clear-Host;
         Write-Host "--------------------------------";
-        Write-Host "Options Set | IntervalInMinutes = $IntervalInMinutes | OnTheMark = $OnTheMark | SpecifyServer = $SpecifyServer | Executing 'Speedtest.exe $ExeArgs'";
+        Write-Host "Options Set | IntervalInMinutes = $IntervalInMinutes | OnTheMark = $OnTheMark | SpecifyServer = $ServerID | Executing 'Speedtest.exe $ExeArgs'";
         if($OnTheMark){
             while($true){
                 if(((Get-Date).Minute % $IntervalInMinutes -eq 0) -or (Get-Date).Minute -eq 0){
@@ -174,6 +202,10 @@
         Write-Host "\|/ DO NOT open the log file while the speed test is running.";
         Write-Host " |  Either stop the script first, or wait for the delay between runtimes."; 
         Write-Host "/|\ It is time! Running Speed Test...Please wait...";
+        Write-Host "Speedtest.exe is currently polling for best server.";
+        Write-Host "Errors may occur during polling process and display in the terminal.";
+        Write-Host "See log for details once prompted";
+
         [Int]$StartMinute = (Get-Date).Minute;
         $J = Invoke-Expression -Command "$SpeedTestExe $ExeArgs" | ConvertFrom-Json;
         while((Get-Date).Minute -eq $StartMinute){ Start-Sleep -Seconds 1; };
